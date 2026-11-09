@@ -1,0 +1,14 @@
+name: CraftEnginePackOptimizer
+version: 1.5.0
+main: net.sicilia.pack.CraftEnginePackOptimizer
+api-version: '1.21'
+load: STARTUP
+depend: [CraftEngine, packetevents]
+folia-supported: true
+commands:
+  cepackpreview:
+    description: Console-only player-scoped resource mapping validation
+    permission: craftenginepackoptimizer.preview
+permissions:
+  craftenginepackoptimizer.preview:
+    default: op

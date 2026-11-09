@@ -1,0 +1,5 @@
+flatten-exact-version-overlays: true
+# Keep server-addressed textures even when no JSON in the pack refers to them.
+keep:
+  - assets/siciliaforge/textures/item/foundry/breaking/**
+  - assets/siciliaforge/textures/item/sand_plane_*
