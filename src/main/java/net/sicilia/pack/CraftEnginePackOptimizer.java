@@ -89,6 +89,15 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
                 sender.sendMessage(bridge.status());
                 return true;
             }
+            if (args.length == 1 && args[0].equals("verify-host")) {
+                try {
+                    runtimeHost.verify();
+                    sender.sendMessage("PASS strict default upload/download and grouped download routing; " + bridge.status());
+                } catch (Exception e) {
+                    sender.sendMessage("FAIL strict host routing: " + e.getMessage());
+                }
+                return true;
+            }
             if (args.length == 1 && args[0].equals("verify")) {
                 try {
                     var mapping = strictMappings.getOrDefault("items", Map.of()).entrySet().stream()
@@ -111,7 +120,7 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
                 return true;
             }
             if (args.length != 2 || !(args[0].equals("start") || args[0].equals("stop"))) {
-                sender.sendMessage("cepackpreview start|stop <online-player>, or status");
+                sender.sendMessage("cepackpreview start|stop <online-player>, or status|verify|verify-host");
                 return true;
             }
             var player = getServer().getPlayerExact(args[1]);
@@ -141,7 +150,8 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
         if (bridge != null) bridge.stopPreview(event.getPlayer().getUniqueId());
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
+    // Install inside the normal-priority upload notification proxy, not around it.
+    @EventHandler(priority = EventPriority.LOWEST)
     public void onCraftEngineReload(CraftEngineReloadEvent event) {
         try { if (runtimeHost != null) runtimeHost.attach(); }
         catch (Exception e) { throw new IllegalStateException("Cannot reattach transparent resource translation", e); }
