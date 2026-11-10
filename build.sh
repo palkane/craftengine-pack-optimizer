@@ -17,7 +17,7 @@ done
 mkdir -p build/classes build/dist
 printf '%s' "$cp" > build/classpath.txt
 javac --release 25 -cp "$cp" -d build/classes $(find src/main/java -name '*.java')
-jar --create --file build/dist/CraftEnginePackOptimizer-1.5.1.jar -C build/classes . -C src/main/resources .
+jar --create --file build/dist/CraftEnginePackOptimizer-1.5.2.jar -C build/classes . -C src/main/resources .
 if [[ "${1:-}" == test ]]; then
   cp="$cp:/home/server/main/libraries/it/unimi/dsi/fastutil/8.5.18/fastutil-8.5.18.jar"
   mkdir -p build/test-classes
@@ -31,4 +31,5 @@ if [[ "${1:-}" == test ]]; then
   java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.ClientResourceMappingsTest
   java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.ClientResourceProtocolTest "${2:-}"
   java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.RuntimeHostBridgeTest
+  python3 -m unittest -v test_verify_strict_pack.py
 fi

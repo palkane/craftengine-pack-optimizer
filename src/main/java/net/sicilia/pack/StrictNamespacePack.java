@@ -68,7 +68,7 @@ public final class StrictNamespacePack {
             JsonObject atlas = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             if (!atlas.has("sources")) continue;
             JsonArray sources = atlas.getAsJsonArray("sources"), expanded = new JsonArray();
-            JsonArray inputs = sources.deepCopy();
+            JsonArray inputs = new JsonArray();
             // This source lives in the vanilla pack, not in the CE atlas JSON.
             if (relative.endsWith("assets/minecraft/atlases/items.json")
                     && sources.asList().stream().map(JsonElement::getAsJsonObject).noneMatch(e ->
@@ -79,6 +79,7 @@ public final class StrictNamespacePack {
                 implicit.addProperty("prefix", "item/");
                 inputs.add(implicit);
             }
+            inputs.addAll(sources.deepCopy());
             for (JsonElement value : inputs) {
                 expanded.add(value);
                 JsonObject entry = value.getAsJsonObject();
@@ -107,7 +108,17 @@ public final class StrictNamespacePack {
                     added++;
                 }
             }
-            if (expanded.size() != sources.size()) {
+            // MaterialBaker prefers the item atlas even for world block geometry.
+            // CE's item previews can register vanilla block sprites there too.
+            if (relative.endsWith("assets/minecraft/atlases/items.json")) {
+                JsonObject filter = new JsonObject(), pattern = new JsonObject();
+                filter.addProperty("type", "filter");
+                pattern.addProperty("namespace", "^minecraft$");
+                pattern.addProperty("path", "^block/.*");
+                filter.add("pattern", pattern);
+                expanded.add(filter);
+            }
+            if (!expanded.equals(sources)) {
                 atlas.add("sources", expanded);
                 Files.writeString(file, new Gson().toJson(atlas), StandardCharsets.UTF_8);
             }

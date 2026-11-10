@@ -22,7 +22,13 @@ public final class StrictNamespacePackTest {
             Path source = temp.resolve("source.zip"), output = temp.resolve("strict.zip");
             try (var zip = new ZipOutputStream(Files.newOutputStream(source))) {
                 add(zip, "pack.mcmeta", "{\"pack\":{\"min_format\":[97,1],\"max_format\":[97,1]}}");
-                add(zip, "assets/minecraft/atlases/items.json/", "{\"sources\":[]}");
+                add(zip, "assets/minecraft/atlases/items.json/", """
+                        {"sources":[
+                          {"type":"single","resource":"block/glass"},
+                          {"type":"single","resource":"block/dead_tube_coral_fan"},
+                          {"type":"filter","pattern":{"namespace":"^minecraft$","path":"^item/iron_pickaxe$"}}
+                        ]}
+                        """);
                 add(zip, "assets/demo/textures/item/icon.png/", "test pixels");
                 add(zip, "assets/demo/models/item/icon.json/", "{\"textures\":{\"layer0\":\"demo:item/icon\"}}");
                 add(zip, "assets/demo/items/icon.json/", "{\"model\":{\"type\":\"minecraft:model\",\"model\":\"demo:item/icon\"}}");
@@ -60,6 +66,29 @@ public final class StrictNamespacePackTest {
                 check(sources.asList().stream().noneMatch(e -> e.getAsJsonObject().has("resource")
                         && e.getAsJsonObject().get("resource").getAsString().endsWith("/hidden")),
                         "inactive texture enabled by base atlas");
+                Set<String> sprites = new HashSet<>(Set.of("minecraft:item/iron_pickaxe"));
+                for (JsonElement value : sources) {
+                    JsonObject item = value.getAsJsonObject();
+                    switch (item.get("type").getAsString()) {
+                        case "directory" -> sprites.add("minecraft:item/iron_pickaxe");
+                        case "single" -> {
+                            String id = item.get(item.has("sprite") ? "sprite" : "resource").getAsString();
+                            sprites.add(id.contains(":") ? id : "minecraft:" + id);
+                        }
+                        case "filter" -> {
+                            JsonObject pattern = item.getAsJsonObject("pattern");
+                            sprites.removeIf(id -> id.split(":", 2)[0].matches(pattern.get("namespace").getAsString())
+                                    && id.split(":", 2)[1].matches(pattern.get("path").getAsString()));
+                        }
+                    }
+                }
+                check(!sprites.contains("minecraft:block/glass"),
+                        "world glass would select the item atlas instead of the block atlas");
+                check(!sprites.contains("minecraft:block/dead_tube_coral_fan"),
+                        "world dead coral fan would select the item atlas");
+                check(!sprites.contains("minecraft:item/iron_pickaxe"),
+                        "implicit directory restored a sprite removed by a later CE filter");
+                check(sprites.contains("custom:demo/item/icon"), "custom item sprite lost");
             }
             check(result.merge().runtimeIds().get("items").get("demo:icon").equals("custom:demo/icon"),
                     "client item model mapping absent");

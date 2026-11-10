@@ -2,6 +2,7 @@
 """Resolve effective 26.3 resources, including atlas sprites, rather than just file names."""
 import argparse
 import json
+import re
 from pathlib import Path
 import struct
 import zipfile
@@ -96,9 +97,94 @@ def inspect(pack, vanilla):
                         parts = texture.split("/", 3)
                         if len(parts) == 4 and parts[2] == "textures" and parts[3].startswith(source) and texture.endswith(".png"):
                             sprites.add(parts[1] + ":" + entry["prefix"] + parts[3][len(source):-4])
-                elif kind not in ("filter", "paletted_permutations"):
+                elif kind == "filter":
+                    pattern = entry["pattern"]
+                    sprites = {sprite for sprite in sprites if not all(
+                        re.fullmatch(pattern[key], sprite.split(":", 1)[index])
+                        for index, key in enumerate(("namespace", "path")) if key in pattern)}
+                elif kind == "paletted_permutations":
+                    for texture in entry["textures"]:
+                        require(path_for("textures", texture, ".png"), name, "atlas_texture")
+                        sprites.update(resource_id(texture) + "_" + suffix
+                                       for suffix in entry["permutations"])
+                else:
                     failures.add(("unknown_atlas_source", name, kind))
         atlases[atlas_id] = sprites
+
+    models = {name: json.loads(data) for name, data in view.items()
+              if "/models/" in name and name.endswith(".json")}
+    resolved = {}
+
+    def resolve(name, parents=()):
+        if name in resolved:
+            return resolved[name]
+        if name in parents or name not in models:
+            return {}, None
+        doc = models[name]
+        textures, elements = ({}, None)
+        if "parent" in doc:
+            textures, elements = resolve(path_for("models", doc["parent"], ".json"), (*parents, name))
+        textures = {**textures, **doc.get("textures", {})}
+        result = (textures, doc.get("elements", elements))
+        resolved[name] = result
+        return result
+
+    def materials(name):
+        textures, elements = resolve(name)
+        references = [face["texture"] for element in elements or []
+                      for face in element.get("faces", {}).values()]
+        if elements is None:
+            references = [key for key in textures if key.startswith("layer")]
+            references = ["#" + key for key in references]
+        result = set()
+        for reference in references:
+            # Faces name a texture slot, with or without the optional '#'.
+            reference = textures.get(reference.removeprefix("#"))
+            seen = set()
+            while isinstance(reference, str) and reference.startswith("#"):
+                if reference in seen:
+                    reference = None
+                    break
+                seen.add(reference)
+                reference = textures.get(reference[1:])
+            if isinstance(reference, dict):
+                reference = reference.get("sprite")
+            if isinstance(reference, str):
+                result.add(resource_id(reference))
+        return result
+
+    blocks = atlases.get("minecraft:blocks", set())
+    items = atlases.get("minecraft:items", set())
+    block_atlas_failures = set()
+
+    def selected(sprite):
+        return "items" if sprite in items else "blocks" if sprite in blocks else "missing"
+
+    def referenced_models(value):
+        if isinstance(value, dict):
+            if isinstance(value.get("model"), str):
+                yield path_for("models", value["model"], ".json")
+            for child in value.values():
+                yield from referenced_models(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from referenced_models(child)
+
+    for name, data in view.items():
+        if not name.endswith(".json"):
+            continue
+        if "/blockstates/" in name:
+            for model in set(referenced_models(json.loads(data))):
+                for sprite in materials(model):
+                    checks += 1
+                    if selected(sprite) != "blocks":
+                        block_atlas_failures.add((name, model, sprite, selected(sprite)))
+        elif "/items/" in name:
+            for model in set(referenced_models(json.loads(data))):
+                used = {selected(sprite) for sprite in materials(model)}
+                checks += 1
+                if len(used) > 1:
+                    failures.add(("mixed_item_atlases", name, model))
 
     def model_references(value, source):
         if isinstance(value, list):
@@ -146,7 +232,8 @@ def inspect(pack, vanilla):
                     require(path_for("textures", entry["texture"], ".png").replace("/textures/", "/textures/entity/equipment/" + layer + "/"),
                             name, "equipment_texture")
     return {"checks": checks, "namespaces": sorted({n.split("/")[1] for n in files}),
-            "failures": sorted(failures), "sprites": {k: len(v) for k, v in atlases.items()}}
+            "failures": sorted(failures), "block_atlas_failures": sorted(block_atlas_failures),
+            "sprites": {k: len(v) for k, v in atlases.items()}}
 
 
 def main():
@@ -179,11 +266,14 @@ def main():
     added = [row for row in after["failures"]
              if tuple(normalize(v) for v in row) not in old_errors]
     result = {"baseline": before, "candidate": after, "new_failures": added,
-              "passed": not added and after["namespaces"] == ["custom", "minecraft"]}
+              "passed": not added and not after["block_atlas_failures"]
+              and after["namespaces"] == ["custom", "minecraft"]}
     Path(args.report).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     print(f"Baseline: {before['checks']} checks, {len(before['failures'])} existing failures")
     print(f"Candidate: {after['checks']} checks, {len(added)} new failures; namespaces={after['namespaces']}")
     print(json.dumps(added[:8], ensure_ascii=False))
+    print(f"World block materials using wrong/missing atlas: baseline={len(before['block_atlas_failures'])}, "
+          f"candidate={len(after['block_atlas_failures'])}")
     raise SystemExit(0 if result["passed"] else 1)
 
 
