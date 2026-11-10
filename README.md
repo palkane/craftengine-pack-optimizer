@@ -14,7 +14,9 @@ CraftEngine 资源包优化附属。将非原版资源统一放入 `minecraft`�
 
 ## 使用
 
-开发基线：**Java 25、Minecraft 26.3 / Leaf、CraftEngine 26.9.2、PacketEvents 2.14.0**。需要 CE 的原生资源包保护功能；其他版本需另行验证。
+最低依赖：**Java 21、Minecraft 1.20.1、CraftEngine 26.9、PacketEvents 2.8.0**。兼容目标为 Minecraft **1.20.1–26.3**，需使用带原生资源包保护功能的 CE，并选择匹配服务端的依赖版本；服务端自身可能要求更高版本的 Java。不要求 Leaf。
+
+已进行跨版本 API 与协议转译检查，不等于每个版本都完成了开服和客户端画面验证。CE 26.9 之前缺少本插件依赖的工作流接口，不支持；较旧 CE 须保持下面的 `store-png: false`。
 
 1. 安装 CraftEngine、PacketEvents 和本插件，正常启动服务器。首次加载会自动生成 `plugins/CraftEnginePackOptimizer/config.yml`，无需手动建文件；已有配置不会覆盖。
 2. **保留原有 CE 托管方式和参数。** 自托管、外链、S3 及其他 CE 托管器仍负责上传和提供下载链接，本插件不要求使用 S3，也不重新实现这些托管服务。

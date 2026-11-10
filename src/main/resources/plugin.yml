@@ -1,7 +1,7 @@
 name: CraftEnginePackOptimizer
-version: 1.6.2
+version: 1.7.0
 main: io.github.palkane.cepackoptimizer.CraftEnginePackOptimizer
-api-version: '1.21'
+api-version: '1.20'
 load: STARTUP
 depend: [CraftEngine, packetevents]
 folia-supported: true

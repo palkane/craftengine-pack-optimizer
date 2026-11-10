@@ -1,7 +1,6 @@
 package io.github.palkane.cepackoptimizer;
 
 import com.github.retrooper.packetevents.event.*;
-import com.github.retrooper.packetevents.protocol.dialog.Dialog;
 import com.github.retrooper.packetevents.protocol.entity.data.EntityData;
 import com.github.retrooper.packetevents.protocol.item.ItemStack;
 import com.github.retrooper.packetevents.protocol.nbt.NBT;
@@ -35,6 +34,18 @@ final class ClientResourceBridge extends PacketListenerAbstract {
     private final Map<String, Constructor<?>> constructors = new HashMap<>();
     private final Map<Class<?>, List<Property>> properties = new ConcurrentHashMap<>();
     private record Property(Method get, Method set) {}
+    private static final Method[] SHEARING = shearingMethods();
+
+    private static Method[] shearingMethods() {
+        try {
+            return new Method[]{ItemEquippable.class.getMethod("isCanBeSheared"),
+                    ItemEquippable.class.getMethod("setCanBeSheared", boolean.class),
+                    ItemEquippable.class.getMethod("getShearingSound"),
+                    ItemEquippable.class.getMethod("setShearingSound", Sound.class)};
+        } catch (NoSuchMethodException ignored) {
+            return new Method[0];
+        }
+    }
 
     ClientResourceBridge(Logger logger) {
         super(PacketListenerPriority.HIGHEST);
@@ -164,7 +175,7 @@ final class ClientResourceBridge extends PacketListenerAbstract {
             Class<?> returns = getter.getReturnType();
             if (getter.getParameterCount() != 0 || !getter.getName().startsWith("get")
                     || !(Component.class.isAssignableFrom(returns) || returns == ItemStack.class
-                    || Sound.class.isAssignableFrom(returns) || Dialog.class.isAssignableFrom(returns)
+                    || Sound.class.isAssignableFrom(returns)
                     || List.class.isAssignableFrom(returns) || Map.class.isAssignableFrom(returns)
                     || returns == Optional.class)) continue;
             try {
@@ -183,6 +194,15 @@ final class ClientResourceBridge extends PacketListenerAbstract {
         }
         if (value instanceof ItemStack item && !item.isEmpty()) {
             ItemStack result = null;
+            if (item.getVersion().isOlderThan(
+                    com.github.retrooper.packetevents.protocol.player.ClientVersion.V_1_20_5)
+                    && item.getNBT() != null) {
+                NBTCompound before = item.getNBT(), after = map.rewriteLegacyItem(before);
+                if (before.equals(after)) return value;
+                result = item.copy();
+                result.setNBT(after);
+                return result;
+            }
             for (var entry : item.getComponents().getPatches().entrySet()) {
                 if (entry.getValue().isEmpty()) continue;
                 ComponentValue<?> before = new ComponentValue(entry.getKey(), entry.getValue().get());
@@ -193,10 +213,6 @@ final class ClientResourceBridge extends PacketListenerAbstract {
                 }
             }
             return result == null ? value : result;
-        }
-        if (value instanceof Dialog dialog) {
-            NBT before = Dialog.encode(wrapper, dialog), after = map.rewrite(before);
-            return before.equals(after) ? value : Dialog.decode(after, wrapper);
         }
         if (value instanceof Sound sound) {
             String before = sound.getSoundId().toString(), after = map.id("sound", before);
@@ -211,10 +227,11 @@ final class ClientResourceBridge extends PacketListenerAbstract {
             return Objects.equals(equipment.getItem(), after) ? value : new Equipment(equipment.getSlot(), after);
         }
         if (value instanceof MerchantOffer offer) {
-            var beforeFirst = offer.getFirstInputCost();
-            var beforeSecond = offer.getSecondInputCost();
-            var first = rewriteCost(beforeFirst, wrapper, map);
-            var second = rewriteCost(beforeSecond, wrapper, map);
+            // Item accessors retain legacy NBT and avoid older PE's second-cost accessor bug.
+            var beforeFirst = offer.getFirstInputItem();
+            var beforeSecond = offer.getSecondInputItem();
+            var first = (ItemStack)rewrite(beforeFirst, wrapper, map);
+            var second = (ItemStack)rewrite(beforeSecond, wrapper, map);
             var output = (ItemStack)rewrite(offer.getOutputItem(), wrapper, map);
             return first == beforeFirst && second == beforeSecond
                     && output == offer.getOutputItem() ? value
@@ -234,18 +251,6 @@ final class ClientResourceBridge extends PacketListenerAbstract {
             return entries.equals(after) ? value : after;
         }
         return value;
-    }
-
-    private MerchantItemCost rewriteCost(MerchantItemCost cost, PacketWrapper<?> wrapper, ClientResourceMappings map) {
-        if (cost == null) return null;
-        List<ComponentValue<?>> values = new ArrayList<>();
-        boolean changed = false;
-        for (ComponentValue<?> component : cost.getPredicate().getRequiredComponents()) {
-            ComponentValue<?> after = rewriteComponent(component, wrapper, map);
-            values.add(after);
-            changed |= !component.equals(after);
-        }
-        return changed ? new MerchantItemCost(cost.getItem(), cost.getCount(), new ComponentPredicate(values)) : cost;
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -273,8 +278,15 @@ final class ClientResourceBridge extends PacketListenerAbstract {
             var after = new ItemEquippable(equip.getSlot(), (Sound)rewrite(equip.getEquipSound(), wrapper, map),
                     resource(map, "equipment", equip.getAssetId()), resource(map, "textures", equip.getCameraOverlay()),
                     equip.getAllowedEntities(), equip.isDispensable(), equip.isSwappable(), equip.isDamageOnHurt(),
-                    equip.isEquipOnInteract(), equip.isCanBeSheared(),
-                    (Sound)rewrite(equip.getShearingSound(), wrapper, map));
+                    equip.isEquipOnInteract());
+            if (SHEARING.length != 0) {
+                try {
+                    SHEARING[1].invoke(after, SHEARING[0].invoke(equip));
+                    SHEARING[3].invoke(after, rewrite(SHEARING[2].invoke(equip), wrapper, map));
+                } catch (ReflectiveOperationException e) {
+                    throw new IllegalStateException("Cannot preserve equipment shearing settings", e);
+                }
+            }
             return equip.equals(after) ? component : new ComponentValue(component.getType(), after);
         }
         if (nested instanceof ItemContainerContents contents) {

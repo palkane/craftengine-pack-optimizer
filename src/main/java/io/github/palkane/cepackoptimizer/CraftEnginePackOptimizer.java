@@ -77,7 +77,8 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
         bridge = new ClientResourceBridge(getLogger());
         com.github.retrooper.packetevents.PacketEvents.getAPI().getEventManager().registerListener(bridge);
         try {
-            nativeItems = NativeItemResourceBridge.attach(bridge);
+            if (net.momirealms.craftengine.core.util.VersionHelper.isOrAbove1_21_5)
+                nativeItems = NativeItemResourceBridge.attach(bridge);
             runtimeHost = new RuntimeHostBridge(this);
             runtimeHost.attach();
         } catch (Exception e) {
@@ -102,6 +103,10 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
                 return true;
             }
             if (args.length == 1 && args[0].equals("verify")) {
+                if (!net.momirealms.craftengine.core.util.VersionHelper.isOrAbove1_21_5) {
+                    sender.sendMessage("Native hashed-item checks apply to Minecraft 1.21.5+; this version uses packet roundtrips.");
+                    return true;
+                }
                 try {
                     var mapping = strictMappings.getOrDefault("items", Map.of()).entrySet().stream()
                             .filter(e -> !e.getKey().equals(e.getValue())).findFirst().orElseThrow();
@@ -109,11 +114,10 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
                     var sample = manager.wrap(new org.bukkit.inventory.ItemStack(org.bukkit.Material.PAPER, 3));
                     sample.itemModel(mapping.getKey());
                     var original = sample.toNBT();
-                    var sent = manager.s2c(sample.copy(), null,
-                            net.momirealms.craftengine.core.item.network.ItemPacketSource.GENERIC).orElseThrow();
+                    var sent = sample.copy().toClientSide(null);
                     if (!sent.itemModel().orElseThrow().equals(mapping.getValue()) || !sample.toNBT().equals(original))
                         throw new IllegalStateException("Native outgoing mapping/source isolation failed");
-                    var restored = manager.c2s(sent.copy()).orElseThrow();
+                    var restored = sent.copy().toServerSide();
                     if (!restored.toNBT().equals(original))
                         throw new IllegalStateException("Native item roundtrip changed components");
                     sender.sendMessage("PASS native CE item s2c/c2s, count/components and source isolation; " + bridge.status());
@@ -194,6 +198,7 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
 
         @Override public PackWorkflowType<ProtectedWorkflow> type() { return protectedWorkflowType; }
         @Override public void validate(PackWorkflowValidation validation) {
+            CraftEngineCompatibility.requireStorePng(storePng);
             validation.requireGeneratedPack();
             validation.zip(path, true);
         }
@@ -203,7 +208,7 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
                     || net.momirealms.craftengine.core.plugin.config.Config.obfuscateItemModel())
                 throw new IllegalStateException("Prefix packaging requires namespace.amount=0 and item-model.enable=false");
             var prepared = ProtectedNamespacePack.prepare(context.generatedPackPath());
-            context.zip(path, true, storePng);
+            CraftEngineCompatibility.zip(context, path, storePng);
             var result = ProtectedNamespacePack.seal(context.resolvePath(path), prepared);
             strictHost.stage(context.resolvePath(path), result);
             getLogger().info("Prepared one minecraft namespace before CE protection; protected ZIP bound without repacking.");
