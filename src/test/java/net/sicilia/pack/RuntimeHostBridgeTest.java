@@ -49,6 +49,18 @@ public final class RuntimeHostBridgeTest {
     }
 
     public static void main(String[] args) throws Exception {
+        Path data = Path.of("plugins", "CraftEnginePackOptimizer");
+        check(RuntimeHostBridge.stateDirectory(data, "state").equals(data.resolve("state").toAbsolutePath()),
+                "default state must stay inside plugin data");
+        Path shared = Path.of("shared-pack-state").toAbsolutePath();
+        check(RuntimeHostBridge.stateDirectory(data, shared.toString()).equals(shared),
+                "explicit existing shared state directory must remain unchanged");
+        check(RuntimeHostBridge.stateDirectory(data, "../shared-state").equals(
+                data.resolve("../shared-state").toAbsolutePath().normalize()), "relative state base changed");
+        try {
+            RuntimeHostBridge.stateDirectory(data, " ");
+            throw new AssertionError("empty state path accepted");
+        } catch (IllegalArgumentException expected) { checks++; }
         check(RuntimeHostBridge.needsTranslation(new Endpoint(false), STRICT), "native S3 not accepted");
         check(RuntimeHostBridge.needsTranslation(synced(new Endpoint(false)), STRICT), "S3 proxy not accepted");
         check(!RuntimeHostBridge.needsTranslation(synced(new Endpoint(true)), STRICT),

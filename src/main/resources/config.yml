@@ -1,5 +1,8 @@
+# Relative to this plugin's data directory, or an absolute shared directory.
+# Existing installations must point this to their existing publication state.
+namespace-state-directory: state
+
+# Legacy sicilia:slim options, not used by protected_prefix_zip.
 flatten-exact-version-overlays: true
-# Keep server-addressed textures even when no JSON in the pack refers to them.
-keep:
-  - assets/siciliaforge/textures/item/foundry/breaking/**
-  - assets/siciliaforge/textures/item/sand_plane_*
+# Add globs for externally addressed resources before using the legacy slimmer.
+keep: []

@@ -1,4 +1,5 @@
 /build/
+/libs/
 __pycache__/
 *.py[cod]
 *.log

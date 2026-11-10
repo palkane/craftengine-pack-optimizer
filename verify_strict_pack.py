@@ -236,6 +236,61 @@ def inspect(pack, vanilla):
             "sprites": {k: len(v) for k, v in atlases.items()}}
 
 
+def model_origins(before, after, mappings, normalize=lambda value: value):
+    """Follow stable item/blockstate entries and parent links through native model renaming."""
+    origins, seen, pending = {}, set(), []
+
+    def paired(left, right):
+        if isinstance(left, dict) and isinstance(right, dict):
+            for key in left.keys() & right.keys():
+                a, b = left[key], right[key]
+                if key in ("model", "parent") and isinstance(a, str) and isinstance(b, str):
+                    old, new = path_for("models", a, ".json"), path_for("models", b, ".json")
+                    if old in before and new in after:
+                        origins.setdefault(new, set()).add(old)
+                        pending.append((old, new))
+                else:
+                    paired(a, b)
+        elif isinstance(left, list) and isinstance(right, list) and len(left) == len(right):
+            for a, b in zip(left, right):
+                paired(a, b)
+
+    for path in before:
+        parts = path.split("/", 3)
+        if len(parts) != 4 or parts[2] not in ("items", "blockstates") or not path.endswith(".json"):
+            continue
+        kind = parts[2]
+        identifier = parts[1] + ":" + parts[3][:-5]
+        target = path_for(kind, mappings.get(kind, {}).get(identifier, identifier), ".json")
+        if target in after:
+            paired(json.loads(before[path]), json.loads(after[target]))
+    while pending:
+        old, new = pending.pop()
+        if (old, new) not in seen:
+            seen.add((old, new))
+            paired(json.loads(before[old]), json.loads(after[new]))
+    # Unreferenced models have no entry-point path. Only accept full JSON equality,
+    # after reversing resource IDs, rather than matching a single missing texture.
+    def restore(value):
+        if isinstance(value, dict):
+            return {k: restore(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [restore(v) for v in value]
+        return normalize(value) if isinstance(value, str) else value
+
+    signatures = {}
+    for path, data in before.items():
+        if "/models/" in path and path.endswith(".json"):
+            signature = json.dumps(json.loads(data), sort_keys=True)
+            signatures.setdefault(signature, set()).add(path)
+    for path, data in after.items():
+        if path not in origins and "/models/" in path and path.endswith(".json"):
+            signature = json.dumps(restore(json.loads(data)), sort_keys=True)
+            if signature in signatures:
+                origins[path] = signatures[signature]
+    return origins
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("baseline")
@@ -247,27 +302,37 @@ def main():
     vanilla = {k: v for k, v in contents(args.vanilla).items() if k.startswith("assets/")}
     before = inspect(args.baseline, vanilla)
     after = inspect(args.candidate, vanilla)
-    mappings = json.loads(Path(args.mapping).read_text())["merge"]["runtimeIds"]
+    merge = json.loads(Path(args.mapping).read_text())["merge"]
+    mappings = merge["runtimeIds"]
     reverse = {v: k for group in mappings.values() for k, v in group.items()}
+    target = "minecraft" if merge["namespacesAfter"] == ["minecraft"] else "custom"
+    moved_namespaces = set(merge["namespacesBefore"]) - {"minecraft"}
 
     def normalize(value):
         if value in reverse:
             return reverse[value]
-        if value.startswith("custom:") and "/" in value:
-            namespace, local = value[len("custom:"):].split("/", 1)
-            return namespace + ":" + local
-        if value.startswith("assets/custom/"):
+        if value.startswith(target + ":") and "/" in value:
+            namespace, local = value[len(target) + 1:].split("/", 1)
+            if namespace in moved_namespaces:
+                return namespace + ":" + local
+        if value.startswith("assets/" + target + "/"):
             parts = value.split("/", 4)
-            if len(parts) == 5:
+            if len(parts) == 5 and parts[3] in moved_namespaces:
                 return "assets/" + parts[3] + "/" + parts[2] + "/" + parts[4]
         return value
 
     old_errors = {tuple(row) for row in before["failures"]}
-    added = [row for row in after["failures"]
-             if tuple(normalize(v) for v in row) not in old_errors]
+    origins = model_origins(effective(contents(args.baseline)), effective(contents(args.candidate)), mappings, normalize)
+    added = []
+    for row in after["failures"]:
+        normalized = tuple(normalize(v) for v in row)
+        source_names = origins.get(row[1], {normalized[1]})
+        if not all((normalized[0], source, *normalized[2:]) in old_errors for source in source_names):
+            added.append(row)
     result = {"baseline": before, "candidate": after, "new_failures": added,
+              "model_origins": {key: sorted(values) for key, values in origins.items()},
               "passed": not added and not after["block_atlas_failures"]
-              and after["namespaces"] == ["custom", "minecraft"]}
+              and after["namespaces"] == sorted(merge["namespacesAfter"])}
     Path(args.report).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     print(f"Baseline: {before['checks']} checks, {len(before['failures'])} existing failures")
     print(f"Candidate: {after['checks']} checks, {len(added)} new failures; namespaces={after['namespaces']}")

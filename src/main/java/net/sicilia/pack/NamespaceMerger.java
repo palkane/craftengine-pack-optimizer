@@ -35,49 +35,50 @@ public final class NamespaceMerger {
         return null;
     }
 
-    private static String remapId(String value, Set<String> namespaces) {
+    private static String remapId(String value, Set<String> namespaces, String targetNamespace) {
         if (!ID.matcher(value).matches()) return value;
         int colon = value.indexOf(':');
         String namespace = value.substring(0, colon);
         if (namespace.equals("minecraft") || !namespaces.contains(namespace)) return value;
-        return "custom:" + namespace + "/" + value.substring(colon + 1);
+        return targetNamespace + ":" + namespace + "/" + value.substring(colon + 1);
     }
 
-    private static JsonElement rewrite(JsonElement value, String field, Set<String> namespaces) {
+    private static JsonElement rewrite(JsonElement value, String field, Set<String> namespaces, String targetNamespace) {
         if (value.isJsonObject()) {
             JsonObject result = new JsonObject();
             for (var entry : value.getAsJsonObject().entrySet())
-                result.add(entry.getKey(), rewrite(entry.getValue(), entry.getKey(), namespaces));
+                result.add(entry.getKey(), rewrite(entry.getValue(), entry.getKey(), namespaces, targetNamespace));
             return result;
         }
         if (value.isJsonArray()) {
             JsonArray result = new JsonArray();
-            for (JsonElement child : value.getAsJsonArray()) result.add(rewrite(child, field, namespaces));
+            for (JsonElement child : value.getAsJsonArray()) result.add(rewrite(child, field, namespaces, targetNamespace));
             return result;
         }
         if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()
                 && !LITERAL_FIELDS.contains(field))
-            return new JsonPrimitive(remapId(value.getAsString(), namespaces));
+            return new JsonPrimitive(remapId(value.getAsString(), namespaces, targetNamespace));
         return value.deepCopy();
     }
 
-    private static String destination(Asset asset) {
+    private static String destination(Asset asset, String targetNamespace) {
         String base = asset.layer + "assets/";
         if (asset.namespace.equals("minecraft")) return base + "minecraft/" + asset.path;
+        String target = base + targetNamespace + "/";
         if (asset.path.startsWith("textures/entity/equipment/")) {
             String rest = asset.path.substring("textures/entity/equipment/".length());
             int slash = rest.indexOf('/');
-            if (slash > 0) return base + "custom/textures/entity/equipment/"
+            if (slash > 0) return target + "textures/entity/equipment/"
                     + rest.substring(0, slash + 1) + asset.namespace + "/" + rest.substring(slash + 1);
         }
-        if (asset.path.equals("sounds.json")) return base + "custom/sounds.json";
-        if (asset.path.startsWith("lang/")) return base + "custom/" + asset.path;
+        if (asset.path.equals("sounds.json")) return target + "sounds.json";
+        if (asset.path.startsWith("lang/")) return target + asset.path;
         if (asset.path.startsWith("shaders/include/"))
-            return base + "custom/shaders/include/" + asset.namespace + "/"
+            return target + "shaders/include/" + asset.namespace + "/"
                     + asset.path.substring("shaders/include/".length());
         int slash = asset.path.indexOf('/');
-        if (slash < 0) return base + "custom/" + asset.namespace + "/" + asset.path;
-        return base + "custom/" + asset.path.substring(0, slash + 1)
+        if (slash < 0) return target + asset.namespace + "/" + asset.path;
+        return target + asset.path.substring(0, slash + 1)
                 + asset.namespace + "/" + asset.path.substring(slash + 1);
     }
 
@@ -102,6 +103,12 @@ public final class NamespaceMerger {
     }
 
     public static Result optimize(Path root) throws IOException {
+        return optimize(root, "custom");
+    }
+
+    public static Result optimize(Path root, String targetNamespace) throws IOException {
+        if (!Set.of("minecraft", "custom").contains(targetNamespace))
+            throw new IllegalArgumentException("Unsupported target namespace");
         Path metadataFile = root.resolve("pack.mcmeta");
         JsonObject metadata = JsonParser.parseString(Files.readString(metadataFile)).getAsJsonObject();
         if (metadata.has("filter"))
@@ -134,7 +141,7 @@ public final class NamespaceMerger {
                 if (asset != null) namespaces.add(asset.namespace);
             }
         }
-        if (namespaces.stream().allMatch(n -> n.equals("minecraft") || n.equals("custom")))
+        if (namespaces.stream().allMatch(n -> n.equals("minecraft") || n.equals(targetNamespace)))
             return new Result(source.size(), 0, 0, namespaces, namespaces, Map.of());
         Map<String, byte[]> plan = new TreeMap<>();
         Map<String, Map<String, String>> runtime = new TreeMap<>();
@@ -149,7 +156,7 @@ public final class NamespaceMerger {
                 plan.put(path, bytes);
                 continue;
             }
-            String target = destination(asset);
+            String target = destination(asset, targetNamespace);
             if (!path.equals(target)) moved++;
             if (path.endsWith(".json") || path.endsWith(".mcmeta")) {
                 JsonElement original = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8));
@@ -159,41 +166,47 @@ public final class NamespaceMerger {
                         JsonObject atlasSource = value.getAsJsonObject();
                         if (atlasSource.has("sprite")) {
                             String sprite = atlasSource.get("sprite").getAsString();
-                            runtime(runtime, "sprites", sprite, remapId(sprite, namespaces));
+                            runtime(runtime, "sprites", sprite, remapId(sprite, namespaces, targetNamespace));
                         } else if (atlasSource.has("resource") && atlasSource.get("type").getAsString()
                                 .replace("minecraft:", "").equals("single")) {
                             String sprite = atlasSource.get("resource").getAsString();
-                            runtime(runtime, "sprites", sprite, remapId(sprite, namespaces));
+                            runtime(runtime, "sprites", sprite, remapId(sprite, namespaces, targetNamespace));
                         }
                         if (atlasSource.has("regions")) for (JsonElement region : atlasSource.getAsJsonArray("regions")) {
                             String sprite = region.getAsJsonObject().get("sprite").getAsString();
-                            runtime(runtime, "sprites", sprite, remapId(sprite, namespaces));
+                            runtime(runtime, "sprites", sprite, remapId(sprite, namespaces, targetNamespace));
                         }
                     }
                 }
-                JsonElement updated = rewrite(original, "", namespaces);
+                JsonElement updated = rewrite(original, "", namespaces, targetNamespace);
                 if (!original.equals(updated)) {
                     bytes = JSON.toJson(updated).getBytes(StandardCharsets.UTF_8);
                     rewritten++;
                 }
-                if (asset.path.equals("sounds.json") && !asset.namespace.equals("minecraft")) {
+                if (asset.path.equals("sounds.json")) {
                     JsonObject sounds = new JsonObject();
                     for (var sound : updated.getAsJsonObject().entrySet()) {
-                        String key = asset.namespace + "/" + sound.getKey();
+                        String key = asset.namespace.equals("minecraft") ? sound.getKey()
+                                : asset.namespace + "/" + sound.getKey();
+                        if (targetNamespace.equals("minecraft") && plan.containsKey(target)
+                                && JsonParser.parseString(new String(plan.get(target), StandardCharsets.UTF_8))
+                                .getAsJsonObject().has(key))
+                            throw new IllegalArgumentException("Sound event collision: " + target + "/" + key);
                         sounds.add(key, sound.getValue());
-                        runtime(runtime, "sound", asset.namespace + ":" + sound.getKey(), "custom:" + key);
+                        runtime(runtime, "sound", asset.namespace + ":" + sound.getKey(),
+                                (asset.namespace.equals("minecraft") ? "minecraft" : targetNamespace) + ":" + key);
                     }
                     mergeJson(plan, target, sounds);
                     continue;
                 }
-                if (asset.path.startsWith("lang/") && !asset.namespace.equals("minecraft")) {
+                if (asset.path.startsWith("lang/")) {
                     mergeJson(plan, target, updated.getAsJsonObject());
                     continue;
                 }
             } else if (path.endsWith(".glsl") || path.endsWith(".vsh") || path.endsWith(".fsh")) {
                 String original = new String(bytes, StandardCharsets.UTF_8);
                 String updated = IMPORT.matcher(original).replaceAll(match ->
-                        match.group(1) + remapId(match.group(2), namespaces) + match.group(3));
+                        match.group(1) + remapId(match.group(2), namespaces, targetNamespace) + match.group(3));
                 if (!original.equals(updated)) {
                     bytes = updated.getBytes(StandardCharsets.UTF_8);
                     rewritten++;
@@ -209,7 +222,7 @@ public final class NamespaceMerger {
                 else if (type.equals("textures") && idPath.endsWith(".png"))
                     idPath = idPath.substring(0, idPath.length() - 4);
                 runtime(runtime, type, asset.namespace + ":" + idPath,
-                        "custom:" + asset.namespace + "/" + idPath);
+                        targetNamespace + ":" + asset.namespace + "/" + idPath);
             }
         }
         // Finish all parsing/collision checks before mutating the isolated staging tree.
@@ -232,17 +245,14 @@ public final class NamespaceMerger {
             Asset asset = asset(path, layers);
             if (asset != null) after.add(asset.namespace);
         }
-        if (!after.stream().allMatch(n -> n.equals("minecraft") || n.equals("custom")))
+        if (!after.stream().allMatch(n -> n.equals("minecraft") || n.equals(targetNamespace)))
             throw new AssertionError("Candidate still has old namespaces");
         return new Result(plan.size(), moved, rewritten, namespaces, after, runtime);
     }
 
     public static void main(String[] args) throws Exception {
         if (args.length != 2) throw new IllegalArgumentException("Usage: <isolated-pack-tree> <report.json>");
-        Path root = Path.of(args[0]).toRealPath();
-        for (String server : List.of("main", "lobby"))
-            if (root.startsWith(Path.of("/home/server", server).toRealPath()))
-                throw new IllegalArgumentException("Use an isolated copy, not a production directory");
+        Path root = OptimizerCli.isolatedRoot(args[0]);
         Result result = optimize(root);
         Files.writeString(Path.of(args[1]), new GsonBuilder().setPrettyPrinting().create().toJson(result));
         System.out.println("Offline candidate: " + result.namespacesBefore.size() + " -> "

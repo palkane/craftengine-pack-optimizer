@@ -39,7 +39,8 @@ final class RuntimeHostBridge {
         var section = ConfigSection.of("resource-pack.packs.default",
                 YamlUtils.reader(Config.instance().settings()).getValue("resource-pack.packs.default")).copy();
         section.put("namespace-state-directory",
-                Path.of("../shared-plugin-sync/state/ce-strict-default").toAbsolutePath().normalize().toString());
+                stateDirectory(plugin.getDataFolder().toPath(),
+                        plugin.getConfig().getString("namespace-state-directory", "state")).toString());
         var adapter = new StrictNamespaceHost(plugin, "default", section, original);
         adapter.restoreMappings();
         var replacement = new LinkedHashMap<>(current);
@@ -52,6 +53,12 @@ final class RuntimeHostBridge {
         hosts.set(packs, installed);
         group.set(packs, installedGroup);
         plugin.getLogger().info("Default S3 host translated in memory; source YAML and generated ZIP unchanged.");
+    }
+
+    static Path stateDirectory(Path dataFolder, String configured) {
+        if (configured == null || configured.isBlank())
+            throw new IllegalArgumentException("namespace-state-directory must not be empty");
+        return dataFolder.resolve(configured).toAbsolutePath().normalize();
     }
 
     static boolean needsTranslation(ResourcePackHost host, ResourcePackHostType<?> strictType) {

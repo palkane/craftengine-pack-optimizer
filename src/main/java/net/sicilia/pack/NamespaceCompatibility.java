@@ -125,13 +125,9 @@ public final class NamespaceCompatibility {
     }
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 2) throw new IllegalArgumentException("Usage: <isolated-tree> <report.json>");
-        Path root = Path.of(args[0]).toRealPath();
-        for (String server : List.of("main", "lobby"))
-            if (root.startsWith(Path.of("/home/server", server).toRealPath()))
-                throw new IllegalArgumentException("Use an isolated copy, not production resources");
-        Result result = prepare(root, List.of("assets/siciliaforge/textures/item/foundry/breaking/**",
-                "assets/siciliaforge/textures/item/sand_plane_*"));
+        if (args.length < 2) throw new IllegalArgumentException("Usage: <isolated-tree> <report.json> [keep-glob ...]");
+        Path root = OptimizerCli.isolatedRoot(args[0]);
+        Result result = prepare(root, Arrays.asList(args).subList(2, args.length));
         Files.writeString(Path.of(args[1]), new GsonBuilder().setPrettyPrinting().create().toJson(result));
         System.out.println("Prepared " + result.aliases + " compatibility files, "
                 + result.spriteAliases + " sprite aliases and " + result.itemModels.size() + " client item mappings.");

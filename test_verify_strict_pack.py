@@ -4,7 +4,41 @@ import unittest
 from pathlib import Path
 from zipfile import ZipFile
 
-from verify_strict_pack import inspect
+from verify_strict_pack import inspect, model_origins
+
+
+class ModelIdentityTest(unittest.TestCase):
+    def test_unreferenced_model_requires_full_content_identity(self):
+        before = {"assets/a/models/orphan.json": json.dumps({"textures": {"all": "a:missing"}, "ambientocclusion": False})}
+        after = {
+            "assets/minecraft/models/random_x.json": json.dumps({"textures": {"all": "minecraft:a/missing"}, "ambientocclusion": False}),
+            "assets/minecraft/models/random_y.json": json.dumps({"textures": {"all": "minecraft:a/missing"}, "ambientocclusion": True}),
+        }
+        result = model_origins(before, after, {}, lambda value: value.replace("minecraft:a/", "a:"))
+        self.assertEqual(result["assets/minecraft/models/random_x.json"], {"assets/a/models/orphan.json"})
+        self.assertNotIn("assets/minecraft/models/random_y.json", result)
+
+    def test_obfuscated_models_keep_separate_origins_and_parent_links(self):
+        before = {
+            "assets/a/items/first.json": {"model": {"type": "model", "model": "a:first"}},
+            "assets/a/items/second.json": {"model": {"type": "model", "model": "a:second"}},
+            "assets/a/models/first.json": {"parent": "a:base"},
+            "assets/a/models/second.json": {},
+            "assets/a/models/base.json": {},
+        }
+        after = {
+            "assets/minecraft/items/a/first.json": {"model": {"type": "model", "model": "minecraft:random_x"}},
+            "assets/minecraft/items/a/second.json": {"model": {"type": "model", "model": "minecraft:random_y"}},
+            "assets/minecraft/models/random_x.json": {"parent": "minecraft:random_base"},
+            "assets/minecraft/models/random_y.json": {},
+            "assets/minecraft/models/random_base.json": {},
+        }
+        result = model_origins({k: json.dumps(v) for k, v in before.items()},
+                               {k: json.dumps(v) for k, v in after.items()},
+                               {"items": {"a:first": "minecraft:a/first", "a:second": "minecraft:a/second"}})
+        self.assertEqual(result["assets/minecraft/models/random_x.json"], {"assets/a/models/first.json"})
+        self.assertEqual(result["assets/minecraft/models/random_y.json"], {"assets/a/models/second.json"})
+        self.assertEqual(result["assets/minecraft/models/random_base.json"], {"assets/a/models/base.json"})
 
 
 class VanillaAtlasTest(unittest.TestCase):

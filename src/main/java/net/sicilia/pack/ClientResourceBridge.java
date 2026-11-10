@@ -49,13 +49,14 @@ final class ClientResourceBridge extends PacketListenerAbstract {
                 {"WINDOW_ITEMS", "WindowItems"}, {"SET_SLOT", "SetSlot"},
                 {"SET_CURSOR_ITEM", "SetCursorItem"}, {"SET_PLAYER_INVENTORY", "SetPlayerInventory"},
                 {"SOUND_EFFECT", "SoundEffect"}, {"ENTITY_SOUND_EFFECT", "EntitySoundEffect"},
-                {"SHOW_DIALOG", "ShowDialog"}, {"MERCHANT_OFFERS", "MerchantOffers"}, {"TEAMS", "Teams"}
+                {"MERCHANT_OFFERS", "MerchantOffers"}, {"TEAMS", "Teams"}
         };
         try {
             for (String[] type : types)
                 constructors.put(type[0], Class.forName("com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServer"
                         + type[1]).getConstructor(PacketSendEvent.class));
             constructors.put("STOP_SOUND", StopSoundPacket.class.getConstructor(PacketSendEvent.class));
+            constructors.put("SHOW_DIALOG", ShowDialogPacket.class.getConstructor(PacketSendEvent.class));
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Installed PacketEvents cannot provide the required resource adapters", e);
         }
@@ -124,6 +125,7 @@ final class ClientResourceBridge extends PacketListenerAbstract {
 
     boolean rewritePacket(PacketWrapper<?> wrapper, ClientResourceMappings map) throws ReflectiveOperationException {
         if (wrapper instanceof StopSoundPacket stop) return stop.translate(map);
+        if (wrapper instanceof ShowDialogPacket dialog) return dialog.translate(map);
         boolean changed = false;
         if (wrapper instanceof WrapperPlayServerWindowItems inventory && inventory.getCarriedItem().isPresent()) {
             ItemStack before = inventory.getCarriedItem().get();

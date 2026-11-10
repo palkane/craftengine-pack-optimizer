@@ -1,5 +1,5 @@
 name: CraftEnginePackOptimizer
-version: 1.5.2
+version: 1.6.1
 main: net.sicilia.pack.CraftEnginePackOptimizer
 api-version: '1.21'
 load: STARTUP

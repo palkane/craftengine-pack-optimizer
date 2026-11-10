@@ -27,6 +27,7 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
     private NamespaceShardHost compatibilityHost;
     private NamespaceCompatibility.Result pendingNamespace;
     private PackWorkflowType<StrictWorkflow> strictWorkflowType;
+    private PackWorkflowType<ProtectedWorkflow> protectedWorkflowType;
     private ResourcePackHostType<StrictNamespaceHost> strictType;
     private StrictNamespaceHost strictHost;
     private ClientResourceBridge bridge;
@@ -47,6 +48,9 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
         shardType = ResourcePackHosts.register(Key.of("sicilia:shards"),
                 (id, section) -> new NamespaceShardHost(this, id, section));
         strictWorkflowType = PackWorkflows.register(Key.of("sicilia:namespace_strict"), section -> new StrictWorkflow());
+        protectedWorkflowType = PackWorkflows.register(Key.of("sicilia:protected_prefix_zip"),
+                section -> new ProtectedWorkflow(section.getString("path", "./generated/resource_pack.zip"),
+                        section.getBoolean("store-png", false)));
         strictType = ResourcePackHosts.register(Key.of("sicilia:strict"),
                 (id, section) -> new StrictNamespaceHost(this, id, section));
     }
@@ -143,7 +147,7 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
         });
         if (compatibilityHost != null) compatibilityHost.restoreMappings();
         if (strictHost != null) strictHost.restoreMappings();
-        getLogger().info("Registered font_merge and post-protection namespace_strict; legacy namespace_merge is retired. Source resources are never modified.");
+        getLogger().info("Registered protected_prefix_zip: merge into minecraft before CE protection; final ZIP is uploaded unchanged.");
     }
 
     @EventHandler public void onQuit(org.bukkit.event.player.PlayerQuitEvent event) {
@@ -173,34 +177,44 @@ public final class CraftEnginePackOptimizer extends JavaPlugin implements Listen
     private final class StrictWorkflow implements PackWorkflow {
         @Override public PackWorkflowType<StrictWorkflow> type() { return strictWorkflowType; }
         @Override public void validate(PackWorkflowValidation validation) {
-            NamespaceCompatibility.validateBinding(validation);
+            throw new IllegalArgumentException("Post-protection namespace_strict is retired; use sicilia:protected_prefix_zip");
         }
         @Override public void execute(PackWorkflowContext context) throws Exception {
-            Path directory = Files.createTempDirectory(getDataFolder().toPath(), "strict-work-");
-            try {
-                var result = StrictNamespacePack.build(context.resolvePath("./generated/resource_pack.zip"),
-                        context.resolvePath("./generated/resource_pack_strict.zip"), directory.resolve("pack"));
-                StrictNamespaceHost.validate(context.resolvePath("./generated/resource_pack_strict.zip"), result);
-                Files.writeString(getDataFolder().toPath().resolve("strict-binding.json"),
-                        new GsonBuilder().setPrettyPrinting().create().toJson(result));
-                var readable = new org.bukkit.configuration.file.YamlConfiguration();
-                readable.set("pack-sha1", result.outputSha1());
-                readable.set("resources", result.merge().runtimeIds());
-                readable.save(getDataFolder().toPath().resolve("client-resource-mappings.yml").toFile());
-                getLogger().info("Strict two-namespace pack prepared after native protection; "
-                        + "archive tricks normalized, native asset obfuscation retained.");
-            } finally {
-                try (var paths = Files.walk(directory)) {
-                    for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) Files.delete(path);
-                }
-            }
+            throw new IllegalStateException("Post-protection repacking is disabled");
+        }
+    }
+
+    private final class ProtectedWorkflow implements PackWorkflow {
+        private final String path;
+        private final boolean storePng;
+
+        private ProtectedWorkflow(String path, boolean storePng) {
+            this.path = path;
+            this.storePng = storePng;
+        }
+
+        @Override public PackWorkflowType<ProtectedWorkflow> type() { return protectedWorkflowType; }
+        @Override public void validate(PackWorkflowValidation validation) {
+            validation.requireGeneratedPack();
+            validation.zip(path, true);
+        }
+        @Override public void execute(PackWorkflowContext context) throws Exception {
+            if (strictHost == null) throw new IllegalStateException("Protected-prefix host is not installed");
+            if (net.momirealms.craftengine.core.plugin.config.Config.namespaceAmount() != 0
+                    || net.momirealms.craftengine.core.plugin.config.Config.obfuscateItemModel())
+                throw new IllegalStateException("Prefix packaging requires namespace.amount=0 and item-model.enable=false");
+            var prepared = ProtectedNamespacePack.prepare(context.generatedPackPath());
+            context.zip(path, true, storePng);
+            var result = ProtectedNamespacePack.seal(context.resolvePath(path), prepared);
+            ProtectedNamespacePack.saveBinding(strictHost.protectedBindingPath(), result);
+            getLogger().info("Prepared one minecraft namespace before CE protection; protected ZIP bound without repacking.");
         }
     }
 
     private final class CompatibilityWorkflow implements PackWorkflow {
         @Override public PackWorkflowType<CompatibilityWorkflow> type() { return compatibilityWorkflowType; }
         @Override public void validate(PackWorkflowValidation validation) {
-            throw new IllegalArgumentException("Legacy namespace_merge caused a rendering regression; use namespace_strict after protected ZIP packaging");
+            throw new IllegalArgumentException("Legacy namespace_merge is retired; use sicilia:protected_prefix_zip");
         }
         @Override public void execute(PackWorkflowContext context) throws Exception {
             pendingNamespace = null;

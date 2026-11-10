@@ -24,6 +24,8 @@ final class StrictNamespaceHost implements ResourcePackHost {
     private final Map<UUID, Deque<Long>> requests = new HashMap<>();
     private String installed;
 
+    Path protectedBindingPath() { return state.resolve("protected-binding.json"); }
+
     StrictNamespaceHost(CraftEnginePackOptimizer plugin, String id, ConfigSection section) {
         this(plugin, id, section, null);
     }
@@ -51,14 +53,17 @@ final class StrictNamespaceHost implements ResourcePackHost {
         try (ZipFile zip = new ZipFile(source.toFile())) {
             Set<String> namespaces = new TreeSet<>(), names = new HashSet<>();
             zip.stream().forEach(e -> {
-                String name = e.getName();
+                if (e.isDirectory() && e.getSize() == 0) return;
+                String name = e.getName().replaceFirst("/+$", "");
                 names.add(name);
                 int start = name.startsWith("assets/") ? 0 : name.indexOf("/assets/") + 1;
                 if (start >= 0 && name.substring(start).startsWith("assets/"))
                     namespaces.add(name.substring(start).split("/", 3)[1]);
             });
-            if (!namespaces.equals(Set.of("custom", "minecraft")))
-                throw new IOException("Strict publication must contain exactly minecraft/custom, found " + namespaces);
+            Set<String> expected = result.merge().namespacesAfter();
+            if (!(expected.equals(Set.of("minecraft")) || expected.equals(Set.of("custom", "minecraft")))
+                    || !namespaces.equals(expected))
+                throw new IOException("Published namespaces do not match the resource map: " + namespaces);
             for (String kind : List.of("items", "font", "equipment")) {
                 for (String target : result.merge().runtimeIds().getOrDefault(kind, Map.of()).values()) {
                     String path = "assets/" + target.replace(":", "/" + kind + "/") + ".json";
@@ -76,14 +81,10 @@ final class StrictNamespaceHost implements ResourcePackHost {
                 try (var channel = java.nio.channels.FileChannel.open(state.resolve("upload.lock"),
                         StandardOpenOption.CREATE, StandardOpenOption.WRITE); var lock = channel.tryLock()) {
                     if (lock == null) throw new IOException("Another strict publication is running");
-                    Path work = Files.createTempDirectory(state, "build-");
-                    try {
-                        Path pack = original == null ? source : work.resolve("strict.zip");
-                        var result = original == null
-                                ? JSON.fromJson(Files.readString(plugin.getDataFolder().toPath()
-                                        .resolve("strict-binding.json")), StrictNamespacePack.Result.class)
-                                : StrictNamespacePack.build(source, pack, work.resolve("pack"));
-                        validate(pack, result);
+                    {
+                        Path pack = source;
+                        var result = ProtectedNamespacePack.readBinding(
+                                protectedBindingPath(), pack);
                         new ClientResourceMappings(result.merge().runtimeIds());
                         String file = result.outputSha1() + ".zip";
                         byte[] data = Files.readAllBytes(pack);
@@ -106,13 +107,7 @@ final class StrictNamespaceHost implements ResourcePackHost {
                             plugin.getLogger().warning("Strict pack published; readable mapping export failed: "
                                     + e.getClass().getSimpleName());
                         }
-                        plugin.getLogger().info("Published one strict minecraft/custom pack: " + result.outputSha1());
-                    } finally {
-                        try (var paths = Files.walk(work)) {
-                            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
-                        } catch (IOException e) {
-                            plugin.getLogger().warning("Strict build cleanup failed: " + e.getClass().getSimpleName());
-                        }
+                        plugin.getLogger().info("Published one protected minecraft pack without repacking: " + result.outputSha1());
                     }
                 }
             } catch (Exception e) {

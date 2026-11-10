@@ -58,6 +58,10 @@ public final class StrictNamespacePack {
 
     /** Directory sources are paths, not resource IDs. Materialize their original sprite set. */
     static int expandDirectories(Path root) throws IOException {
+        return rewriteDirectories(root, null);
+    }
+
+    static int rewriteDirectories(Path root, Map<String, String> prefixSprites) throws IOException {
         List<Path> files;
         try (var paths = Files.walk(root)) { files = paths.filter(Files::isRegularFile).toList(); }
         int added = 0;
@@ -87,6 +91,7 @@ public final class StrictNamespacePack {
                 if (!type.equals("directory") && !type.equals("minecraft:directory")) continue;
                 String prefix = entry.get("prefix").getAsString();
                 String source = entry.get("source").getAsString().replaceFirst("/+$", "") + "/";
+                Set<String> directories = new HashSet<>();
                 for (Path texture : files) {
                     String name = root.relativize(texture).toString().replace('\\', '/');
                     int assets = name.startsWith("assets/") ? 0 : name.indexOf("/assets/") + 1;
@@ -100,6 +105,18 @@ public final class StrictNamespacePack {
                     String resource = parts[1] + ":" + parts[3].substring(0, parts[3].length() - 4);
                     String sprite = parts[1] + ":" + prefix
                             + parts[3].substring(source.length(), parts[3].length() - 4);
+                    if (prefixSprites != null) {
+                        prefixSprites.put(sprite, "minecraft:" + sprite.replace(':', '/'));
+                        if (directories.add(parts[1])) {
+                            JsonObject directory = new JsonObject();
+                            directory.addProperty("type", "directory");
+                            directory.addProperty("source", parts[1] + "/" + source.substring(0, source.length() - 1));
+                            directory.addProperty("prefix", parts[1] + "/" + prefix);
+                            expanded.add(directory);
+                        }
+                        added++;
+                        continue;
+                    }
                     JsonObject single = new JsonObject();
                     single.addProperty("type", "single");
                     single.addProperty("resource", resource);

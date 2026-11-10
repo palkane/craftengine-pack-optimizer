@@ -62,9 +62,8 @@ def verify(original, candidate, report):
             "providers_after": len(new["providers"]),
         }
         for label, doc in (("before", old), ("after", new)):
-            stats["carry_atlas_" + label] = sum(
-                p.get("file") == "wastecity:font/carry_preview_blocks_16.png"
-                for p in doc["providers"])
+            stats["bitmap_files_" + label] = dict(sorted(collections.Counter(
+                p["file"] for p in doc["providers"]).items()))
         fonts.append(stats)
     result = {
         "passed": True, "files": len(before), "changed": changed,
