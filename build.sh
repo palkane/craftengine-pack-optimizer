@@ -14,17 +14,19 @@ if [[ "${1:-}" == test ]]; then
   mkdir -p build/test-classes
   find src/test/java -name '*.java' -print > build/test-sources.txt
   javac --release 25 -cp "build/classes:$cp" -d build/test-classes @build/test-sources.txt
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.OfflineCliTest
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.PackOptimizerTest
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.NamespaceShardsTest
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.FontProviderOptimizerTest
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.NamespaceMergerTest
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.NamespaceCompatibilityTest
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.StrictNamespacePackTest
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.ProtectedNamespacePackTest
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.ClientResourceMappingsTest
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.ClientResourceProtocolTest "${2:-}"
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.ShowDialogPacketTest "${3:-}"
-  java -cp "build/classes:build/test-classes:$cp" net.sicilia.pack.RuntimeHostBridgeTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.PluginConfigTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.NativeHostingTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.OfflineCliTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.PackOptimizerTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.NamespaceShardsTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.FontProviderOptimizerTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.NamespaceMergerTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.NamespaceCompatibilityTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.StrictNamespacePackTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.ProtectedNamespacePackTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.ClientResourceMappingsTest
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.ClientResourceProtocolTest "${2:-}"
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.ShowDialogPacketTest "${3:-}"
+  java -cp "build/classes:build/test-classes:$cp" io.github.palkane.cepackoptimizer.RuntimeHostBridgeTest
   python3 -m unittest -v test_verify_strict_pack.py
 fi

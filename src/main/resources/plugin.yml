@@ -1,6 +1,6 @@
 name: CraftEnginePackOptimizer
-version: 1.6.1
-main: net.sicilia.pack.CraftEnginePackOptimizer
+version: 1.6.2
+main: io.github.palkane.cepackoptimizer.CraftEnginePackOptimizer
 api-version: '1.21'
 load: STARTUP
 depend: [CraftEngine, packetevents]
