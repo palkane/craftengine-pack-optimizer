@@ -60,7 +60,8 @@ final class ClientResourceBridge extends PacketListenerAbstract {
                 {"WINDOW_ITEMS", "WindowItems"}, {"SET_SLOT", "SetSlot"},
                 {"SET_CURSOR_ITEM", "SetCursorItem"}, {"SET_PLAYER_INVENTORY", "SetPlayerInventory"},
                 {"SOUND_EFFECT", "SoundEffect"}, {"ENTITY_SOUND_EFFECT", "EntitySoundEffect"},
-                {"MERCHANT_OFFERS", "MerchantOffers"}, {"TEAMS", "Teams"}
+                {"MERCHANT_OFFERS", "MerchantOffers"}, {"TEAMS", "Teams"},
+                {"RECIPE_BOOK_ADD", "RecipeBookAdd"}, {"DECLARE_RECIPES", "DeclareRecipes"}
         };
         try {
             for (String[] type : types)
@@ -137,6 +138,9 @@ final class ClientResourceBridge extends PacketListenerAbstract {
     boolean rewritePacket(PacketWrapper<?> wrapper, ClientResourceMappings map) throws ReflectiveOperationException {
         if (wrapper instanceof StopSoundPacket stop) return stop.translate(map);
         if (wrapper instanceof ShowDialogPacket dialog) return dialog.translate(map);
+        if (wrapper instanceof com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerRecipeBookAdd
+                || wrapper instanceof com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDeclareRecipes)
+            return RecipeResourceBridge.translate(wrapper, item -> (ItemStack)rewrite(item, wrapper, map));
         boolean changed = false;
         if (wrapper instanceof WrapperPlayServerWindowItems inventory && inventory.getCarriedItem().isPresent()) {
             ItemStack before = inventory.getCarriedItem().get();

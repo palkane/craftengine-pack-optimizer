@@ -1,5 +1,5 @@
 name: CraftEnginePackOptimizer
-version: 1.7.0
+version: 1.7.1
 main: io.github.palkane.cepackoptimizer.CraftEnginePackOptimizer
 api-version: '1.20'
 load: STARTUP
